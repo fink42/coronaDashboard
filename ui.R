@@ -159,7 +159,7 @@ dashboardPage(
                 "."
               ),
               tags$p("The sourcecode is accessible ", tags$a(href = "https://github.com/fink42/coronaDashboard", taget = "_blank", "here"), ".")
-            )
+              )
           )
         )
         
