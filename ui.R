@@ -1,6 +1,7 @@
 library(shinydashboard)
 library(shinyWidgets)
 library(plotly)
+library(shinycssloaders)
 
 ui <- function(request){
 dashboardPage(
@@ -31,7 +32,11 @@ dashboardPage(
                               ')),
       tags$head(tags$style(
         type="text/css",
-        "#animated_map img {max-width: 95%; max-height: 1000px; width: auto; height: auto}"
+        "#animated_map img {max-width: 95%; max-height: 600px; width: auto; height: auto}"
+      )),
+      tags$head(tags$style(
+        type="text/css",
+        "#map img {max-width: 95%; max-height: 600px; width: auto; height: auto}"
       )),
       
       tabItems(
@@ -45,32 +50,54 @@ dashboardPage(
                    id = "tabset1",
                    # Confirmed cases
                    tabPanel("Cases",
-                            plotlyOutput("confirmedCases", height = "140%")
+                            withSpinner(plotlyOutput("confirmedCases", height = "140%"),
+                              type = 4
+                            )
+                            
                    ),
                    # Confirmed deaths
                    tabPanel("Deaths",
-                            plotlyOutput("confirmedDeaths", height = "140%")
+                            withSpinner(plotlyOutput("confirmedDeaths", height = "140%"),
+                                        type = 4
+                            )
+                            
                    ),
                    # Deaths corrected for onset
                    tabPanel("Controlling for onset",
-                            plotlyOutput("onsetDeaths", height = "140%")
+                            withSpinner(plotlyOutput("onsetDeaths", height = "140%"),
+                                        type = 4
+                            )
+                            
                    ),
                    # Estimating R
                    tabPanel("Reproduction rate",
-                            plotlyOutput("estimated_R", height = "140%")
+                            withSpinner(plotlyOutput("estimated_R", height = "140%"),
+                                        type = 4
+                            ),
+                            withSpinner(plotlyOutput("estimated_R_cases", height = "140%"),
+                                        type = 4
+                            )
+                            
                    ),
                    # Estimating R - Region
                    tabPanel("Reproduction rate by region",
-                            plotlyOutput("estimated_R_region", height = "140%")
+                            withSpinner(plotlyOutput("estimated_R_region", height = "140%"),
+                                        type = 4)
                    ),
                    # Map estimated R
                    tabPanel("Map",
-                            plotOutput("map_R", height = "600px")
+                            withSpinner(
+                              plotOutput("map_R", height = "600px"),
+                              type = 4)
+                            
                    ),
                    # Map estimated R
                    tabPanel("Map (animated)",
                             #plotOutput("map_R", height = "600px")
-                            imageOutput("animated_map", height = '1000px')
+                            withSpinner(
+                              imageOutput("animated_map", height = '600px'),
+                              type = 4)
+                            
                    ),
                    width = 12
             )
@@ -99,7 +126,7 @@ dashboardPage(
                                              value = 10),
                                  selectizeInput(inputId = "input_countries",
                                                 label = "Countries:",
-                                                choices = c("Austria", "Belgium", "Denmark", "France", "Germany", "Italy", "Korea, South", "Norway", "Spain", "Sweden", "United Kingdom", "US", "Russia"),
+                                                choices = c("Austria", "Belgium", "Denmark", "France", "Germany", "Greece", "Italy", "Korea, South", "Norway", "Russia", "Spain", "Sweden", "United Kingdom", "US"),
                                                 multiple = TRUE,
                                                 selected = "Denmark", width = "70%"),
                                  width = 4

@@ -6,6 +6,7 @@ library(RMySQL, quietly = TRUE)
 library(parallel)
 library(stringr)
 library(EpiEstim)
+library(parallel)
 
 
 server <- function(input, output, session) {
@@ -190,7 +191,7 @@ server <- function(input, output, session) {
         
     })
     
-    # Plot with estimate R ----
+    # Plot with estimated R (based on hospitalization)----
     output$estimated_R <- renderPlotly({
       # Load data
         latest <- list.dirs("data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max()
@@ -249,16 +250,89 @@ server <- function(input, output, session) {
                                      mode = 'lines',
                                      line = list(color = 'black', dash = 'dot'),
                                      hoverinfo = 'skip')
-          plot <- plot %>% layout(xaxis = list(title = 'Date',
+          plot <- plot %>% layout(title = "Reproduction rate estimated using hospitalisations",
+                                  xaxis = list(title = 'Date',
                                                fixedrange = TRUE),
                                   yaxis = list(title = 'R',
                                                fixedrange = TRUE,
-                                               range = c(0, 6))) %>%
+                                               range = c(0, 5.6))) %>%
             config(displayModeBar = FALSE)
           plot
     })
     
-    # Plot with estimated R - by region ----
+    # Plot with estimated R (based on confirmed cases)----
+    output$estimated_R_cases <- renderPlotly({
+      # Load data
+      latest <- list.dirs("data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max()
+      data <- fread(paste0("data/zip_file/", latest, "/Test_pos_over_time.csv"), dec = ",")
+        # Clean data
+        data[, NewPositive := as.numeric(str_remove(NewPositive, "[.]"))]
+        data <- data[1:(nrow(data)-2), .("date" = as.Date(Date), NewPositive)]
+        
+      # Drop early observations
+      data <- data[date >= data[NewPositive > 1, min(date)], ]
+      # Estimate R
+      mean_si <- 4.7
+      std_si <- mean_si/2
+      
+      res <- estimate_R(incid = data$NewPositive,
+                        method = "parametric_si",
+                        config = make_config(list(
+                          mean_si = mean_si,
+                          std_si = std_si)))
+      res$dates <- data$date
+      
+      # Plot
+      setDT(res$R)
+      plotdata <- res$R
+      plotdata[, date :=  res$dates[8:length(res$dates)]]
+      plotdata <- plotdata[date <= max(date)-4] # Remove 4 latest observations
+      plot <- plot_ly(data = plotdata,
+                      x = ~date,
+                      y = ~`Quantile.0.975(R)`,
+                      type = 'scatter',
+                      mode = 'lines',
+                      line = list(color = 'transparent'),
+                      showlegend = FALSE,
+                      name = 'Upper',
+                      hoverinfo = 'skip')
+      plot <- plot %>% add_trace(x = ~date,
+                                 y = ~`Quantile.0.025(R)`,
+                                 type = 'scatter',
+                                 mode = 'lines',
+                                 fill = 'tonexty',
+                                 fillcolor = 'rgba(28, 32, 255,0.3)',
+                                 line = list(color = 'transparent'),
+                                 showlegend = FALSE,
+                                 name = 'Lower',
+                                 hoverinfo = 'skip')
+      plot <- plot %>% add_trace(x = ~date,
+                                 y = ~`Mean(R)`,
+                                 customdata = ~`Quantile.0.975(R)`,
+                                 text = ~`Quantile.0.025(R)`,
+                                 type = 'scatter',
+                                 mode = 'lines',
+                                 line = list(color = 'rgb(28, 32, 255)'),
+                                 hovertemplate = paste('Date: %{x}',
+                                                       '<br>R: %{y:.2f} [%{text:.2f}:%{customdata:.2f}]'),
+                                 name = 'Predicted R')
+      plot <- plot %>% add_lines(x = ~date,
+                                 y = 1,
+                                 type = 'scatter',
+                                 mode = 'lines',
+                                 line = list(color = 'black', dash = 'dot'),
+                                 hoverinfo = 'skip')
+      plot <- plot %>% layout(title = "Reproduction rate estimated using confirmed cases",
+                              xaxis = list(title = 'Date',
+                                           fixedrange = TRUE),
+                              yaxis = list(title = 'R',
+                                           fixedrange = TRUE,
+                                           range = c(0, 5.6))) %>%
+        config(displayModeBar = FALSE)
+      plot
+    })
+    
+    # Plot with estimated R - by region (based on hospitalization)----
     output$estimated_R_region <- renderPlotly({
       # Load data
         latest <- list.dirs("data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max()
@@ -511,15 +585,14 @@ server <- function(input, output, session) {
       data[new_cases < 0, new_cases := 0]
       data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, new_cases)]
       
+      data[!is.na(new_cases), new_cases := round(zoo::rollmean(new_cases, k = 3, fill = NA, align = "right")), by = `Kommune_(id)`]
       
       # Estimate R
       mean_si <- 4.7
       std_si <- mean_si/2
       delta_days <- 7
       
-      estimates <- list()
-      R <- list()
-      for (municipality in data[, unique(`Kommune_(id)`)]){
+      estimates <- mclapply(data[, unique(`Kommune_(id)`)], function(municipality){
         if (data[`Kommune_(id)` == municipality & !is.na(new_cases), max(new_cases)] > 1){
           N <- length(data[`Kommune_(id)` == municipality & !is.na(new_cases), new_cases])
           est <- estimate_R(incid = data[`Kommune_(id)` == municipality & !is.na(new_cases), new_cases],
@@ -529,18 +602,12 @@ server <- function(input, output, session) {
                               std_si = std_si,
                               t_start = seq(2, (N-delta_days+1)),
                               t_end = seq(delta_days+1, N))))
-          est$dates <- data[`Kommune_(id)` == municipality & !is.na(new_cases), date]
-          
-          estimates[[paste(municipality)]] <- est
-          
           setDT(est$R)
           est$R[, municipality := municipality]
-          R[[paste(municipality)]] <- est$R
         }
-        
-      }
+      })
       
-      plotData <- rbindlist(R)
+      plotData <- rbindlist(estimates)
       plotData <- merge(plotData, data[date == "2020-05-11", .(`Kommune_(id)`, `Kommune_(navn)`)],
                         by.x = "municipality",
                         by.y = "Kommune_(id)")
@@ -550,26 +617,31 @@ server <- function(input, output, session) {
       # Map Plot
       library(mapDK)
       library(ggpolypath)
-      mapPlotData <- mapDK(data = plotData[t_end == N], #  & `Mean(R)` < 4
+      mapPlotData <- mapDK(data = plotData[t_end == max(t_end)], #  & `Mean(R)` < 4
                            values = "Mean(R)",
                            id = "Kommune",
                            detail = "municipal",
                            show_missing = TRUE)$data
       setDT(mapPlotData)
       #mapPlotData[is.na(values), values := 0]
-      mapPlotData[values >=4, values := 4] # Truncated values above 4
+      mapPlotData[values >=3, values := 3] # Truncated values above 3
       
       ggplot(mapPlotData) +
         geom_polypath(aes(long, lat, group = group, fill = values, color = "")) +
         geom_path(aes(long, lat, group = group), size = .2) +
-        scale_fill_gradient2(low = "#2ca25f",  mid = "#F5C710" ,high = "#e34a33", midpoint = 2, na.value = "grey", limits = c(0,4), name = "Reproduction rate (R)", aesthetics = "fill") +
+        scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = 1.5, na.value = "#9e9e9e", limits = c(0,3), name = "Reproduction rate (R)", aesthetics = "fill") +
         theme_void() +
         scale_color_manual(values = NA) +
-        guides(colour=guide_legend("Too few cases", override.aes=list(color="grey", fill = "grey"))) +
-        coord_fixed(ratio = 1.85)
-    })
+        guides(colour=guide_legend("Too few cases", override.aes=list(color="#9e9e9e", fill = "#9e9e9e"))) +
+        coord_fixed(ratio = 1.85) +
+        theme(legend.position = c(.87, .7)) +
+        ggtitle("Reproduction rate per municipality estimated using confirmed cases")
+    },
+    height = 600,
+    width = 800,
+    res = 96)
     
-    # Animated map
+    # Animated map ----
     output$animated_map <- renderImage({
       
       list(src = "data/mapAnimation.gif",
