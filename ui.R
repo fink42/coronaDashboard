@@ -1,7 +1,4 @@
-library(shinydashboard)
-library(shinyWidgets)
-library(plotly)
-library(shinycssloaders)
+
 
 ui <- function(request){
 dashboardPage(
@@ -36,7 +33,7 @@ dashboardPage(
       )),
       tags$head(tags$style(
         type="text/css",
-        "#map img {max-width: 95%; max-height: 600px; width: auto; height: auto}"
+        "#map_R img {max-width: 95%; max-height: 600px; width: auto; height: auto}"
       )),
       
       tabItems(
@@ -44,97 +41,102 @@ dashboardPage(
         tabItem(
           tabName = "tab_dashboard",
           
-          # Plots ----
+          # First row ----
           fluidRow(
-            tabBox(title = "",
-                   id = "tabset1",
-                   # Confirmed cases
-                   tabPanel("Cases",
-                            withSpinner(plotlyOutput("confirmedCases", height = "140%"),
-                              type = 4
-                            )
-                            
-                   ),
-                   # Confirmed deaths
-                   tabPanel("Deaths",
-                            withSpinner(plotlyOutput("confirmedDeaths", height = "140%"),
-                                        type = 4
-                            )
-                            
-                   ),
-                   # Deaths corrected for onset
-                   tabPanel("Controlling for onset",
-                            withSpinner(plotlyOutput("onsetDeaths", height = "140%"),
-                                        type = 4
-                            )
-                            
-                   ),
-                   # Estimating R
-                   tabPanel("Reproduction rate",
-                            withSpinner(plotlyOutput("estimated_R", height = "140%"),
-                                        type = 4
-                            ),
-                            withSpinner(plotlyOutput("estimated_R_cases", height = "140%"),
-                                        type = 4
-                            )
-                            
-                   ),
-                   # Estimating R - Region
-                   tabPanel("Reproduction rate by region",
-                            withSpinner(plotlyOutput("estimated_R_region", height = "140%"),
-                                        type = 4)
-                   ),
-                   # Map estimated R
-                   tabPanel("Map",
-                            withSpinner(
-                              plotOutput("map_R", height = "600px"),
-                              type = 4)
-                            
-                   ),
-                   # Map estimated R
-                   tabPanel("Map (animated)",
-                            #plotOutput("map_R", height = "600px")
-                            withSpinner(
-                              imageOutput("animated_map", height = '600px'),
-                              type = 4)
-                            
-                   ),
-                   width = 12
+            # Reproduction rate ----
+            tabBox(
+              title = "Reproduction rate",
+              id = "reproduction_rate",
+              tabPanel("Hospitalisations",
+                       withSpinner(plotlyOutput("estimated_R", height = "140%"),
+                                   type = 4
+                       )),
+              tabPanel("Cases",
+                       withSpinner(plotlyOutput("estimated_R_cases", height = "140%"),
+                                   type = 4
+                       )),
+              width = 6
+            ),
+            # Map with reproduction rate ----
+            tabBox(
+              title = "Map",
+              id = "map_box",
+              tabPanel(lubridate::today(),
+                       withSpinner(
+                         plotOutput("map_R", height = "auto"),
+                         type = 4)),
+              tabPanel("Animated",
+                       withSpinner(
+                         imageOutput("animated_map", height = "auto"),
+                         type = 4)),
+              width = 6
             )
           ),
-          # Controls ----
-          conditionalPanel(condition = "input.tabset1 == 'Cases' || input.tabset1 == 'Deaths' || input.tabset1 == 'Controlling for onset'",
-                           fluidRow(
-                             # Add predictions
-                             box(title = "Controls",
-                                 materialSwitch(
-                                   inputId = "addPredictions",
-                                   label = "Predictions", 
-                                   status = "primary",
-                                   right = TRUE
-                                 ),
-                                 materialSwitch(
-                                   inputId = "addConfidence",
-                                   label = "Confidence intervals", 
-                                   status = "primary",
-                                   right = TRUE
-                                 ),
-                                 sliderInput("days",
-                                             label = "Days",
-                                             min = 1,
-                                             max = 100,
-                                             value = 10),
-                                 selectizeInput(inputId = "input_countries",
-                                                label = "Countries:",
-                                                choices = c("Austria", "Belgium", "Denmark", "France", "Germany", "Greece", "Italy", "Korea, South", "Norway", "Russia", "Spain", "Sweden", "United Kingdom", "US"),
-                                                multiple = TRUE,
-                                                selected = "Denmark", width = "70%"),
-                                 width = 4
-                             )
-                           )
-          )
+          
+          # Second row ----
+          fluidRow(
+            # Reproduction rate by region
+            tabBox(
+              title = "Reproduction rate by region",
+              id = "reproduction_rate_region",
+              tabPanel("By region",
+                       withSpinner(plotlyOutput("estimated_R_region", height = "140%"),
+                                   type = 4)),
+              width = 6
+            ),
+            # World
+            tabBox(
+              title = "World situation",
+              id = "world_siuation",
+              # Confirmed cases
+              tabPanel("Cases",
+                       withSpinner(plotlyOutput("confirmedCases", height = "140%"),
+                                   type = 4)
+                       
+              ),
+              # Confirmed deaths
+              tabPanel("Deaths",
+                       withSpinner(plotlyOutput("confirmedDeaths", height = "140%"),
+                                   type = 4)
+                       
+              ),
+              # Deaths corrected for onset
+              tabPanel("Controlling for onset",
+                       withSpinner(plotlyOutput("onsetDeaths", height = "140%"),
+                                   type = 4)
+                       
+              ),
+              tags$hr(),
+              # Controls
+                materialSwitch(
+                  inputId = "addPredictions",
+                  label = "Predictions", 
+                  status = "primary",
+                  right = TRUE
+                ),
+                materialSwitch(
+                  inputId = "addConfidence",
+                  label = "Confidence intervals", 
+                  status = "primary",
+                  right = TRUE
+                ),sliderInput("days",
+                              label = "Days",
+                              min = 1,
+                              max = 100,
+                              value = 10),
+              selectizeInput(inputId = "input_countries",
+                             label = "Countries:",
+                             choices = read_fst("data/plotData.fst", as.data.table = TRUE)$`Country/Region` %>% unique() %>% as.vector(),
+                             multiple = TRUE,
+                             selected = "Denmark", width = "70%"),
+              
+              width = 6
+            )
+            
+          ),
+          
         ),
-        # About - tab_about -----------------------------------------------------
+        # Tab: tab_about -----------------------------------------------------
         tabItem(
           "tab_about",
           fluidRow(

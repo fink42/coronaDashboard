@@ -1,14 +1,3 @@
-library(drc)
-library(data.table)
-library(fst)
-library(plotly)
-library(RMySQL, quietly = TRUE)
-library(parallel)
-library(stringr)
-library(EpiEstim)
-library(parallel)
-
-
 server <- function(input, output, session) {
   message(packageVersion("shiny"))
   # Functions ----
@@ -190,6 +179,7 @@ server <- function(input, output, session) {
         plot
         
     })
+    
     
     # Plot with estimated R (based on hospitalization)----
     output$estimated_R <- renderPlotly({
@@ -581,6 +571,20 @@ server <- function(input, output, session) {
       
       data <- rbindlist(res)
       setkey(data, Kommune_(id), date)
+      data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, `Antal_bekræftede_COVID-19`)]
+      data[, date := as.Date(date)]
+      
+        # Impute missing
+        helper <- expand.grid(seq.Date(data[, min(date)], data[, max(date)], by = "day"), data[, unique(`Kommune_(navn)`)]) %>% data.table()
+        names(helper) <- c("date", "Kommune_(navn)")
+        data <- merge(helper, data, by = c("date", "Kommune_(navn)"), all.x = TRUE)
+        data[, count_na := sum(is.na(`Antal_bekræftede_COVID-19`))/.N, by = "Kommune_(navn)"]
+        data <- data[count_na < .5]
+        data[, count_na := NULL]
+        library(imputeTS)
+        data[, `Antal_bekræftede_COVID-19` := round(na_interpolation(`Antal_bekræftede_COVID-19`)), by = "Kommune_(navn)"]
+        data[, `Kommune_(id)` := median(`Kommune_(id)`, na.rm = TRUE), by = "Kommune_(navn)"]
+      
       data[, new_cases := `Antal_bekræftede_COVID-19`- shift(`Antal_bekræftede_COVID-19`, n = 1, type = "lag"), by = "Kommune_(id)"]
       data[new_cases < 0, new_cases := 0]
       data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, new_cases)]
