@@ -47,6 +47,7 @@ dashboardPage(
             tabBox(
               title = "Reproduction rate",
               id = "reproduction_rate",
+              side = "right",
               tabPanel("Hospitalisations",
                        withSpinner(plotlyOutput("estimated_R", height = "140%"),
                                    type = 4
@@ -61,9 +62,10 @@ dashboardPage(
             tabBox(
               title = "Map",
               id = "map_box",
+              side = "right",
               tabPanel(lubridate::today(),
                        withSpinner(
-                         plotOutput("map_R", height = "auto"),
+                         imageOutput("map_R", height = "auto"),
                          type = 4)),
               tabPanel("Animated",
                        withSpinner(
@@ -79,6 +81,7 @@ dashboardPage(
             tabBox(
               title = "Reproduction rate by region",
               id = "reproduction_rate_region",
+              side = "right",
               tabPanel("By region",
                        withSpinner(plotlyOutput("estimated_R_region", height = "140%"),
                                    type = 4)),
@@ -88,6 +91,7 @@ dashboardPage(
             tabBox(
               title = "World situation",
               id = "world_siuation",
+              side = "right",
               # Confirmed cases
               tabPanel("Cases",
                        withSpinner(plotlyOutput("confirmedCases", height = "140%"),
