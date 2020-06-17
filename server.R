@@ -208,10 +208,24 @@ server <- function(input, output, session) {
            contentType = "image/png")
     }, deleteFile = FALSE)
     
+    # Map with cases per 100,000 last 7 days ----
+    output$map_cases_7_day <- renderImage({
+      list(src = "data/map_confirmed_cases_7_day.png",
+           contentType = "image/png")
+    }, deleteFile = FALSE)
+    
     # Animated map ----
     output$animated_map <- renderImage({
       
       list(src = "data/mapAnimation.gif",
+           contentType = 'image/gif')
+      
+    }, deleteFile = FALSE)
+    
+    # Animated map cases per 100,000 last 7 days ----
+    output$animated_map_cases_7_day <- renderImage({
+      
+      list(src = "data/mapAnimation_cases_7_day.gif",
            contentType = 'image/gif')
       
     }, deleteFile = FALSE)

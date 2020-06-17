@@ -49,23 +49,24 @@ data[, Type := "Actual"]
 
 # Weight by population
 # Merge with population
-pop <- data.table("Denmark"         =   5603000,
-                  "Sweden"          =  10120000,
-                  "Norway"          =   5368000,
-                  "Germany"         =  82790000,
-                  "United Kingdom"  =  66440000,
+pop <- data.table("Austria"         =   8822000,
                   "Belgium"         =  11400000,
-                  "US"              = 327200000,
-                  "Italy"           =  60480000,
-                  "Spain"           =  46660000,
+                  "Brazil"          = 209500000,
+                  "Denmark"         =   5603000,
                   "France"          =  66990000,
-                  "Austria"         =   8822000,
-                  "Japan"           = 126500000,
-                  "Russia"          = 144500000,
+                  "Germany"         =  82790000,
                   "Greece"          =  10720000,
+                  "Italy"           =  60480000,
+                  "Japan"           = 126500000,
                   "Korea, South"    =  51640000,
+                  "Norway"          =   5368000,
                   "Peru"            =  31990000,
-                  "Brazil"          = 209500000
+                  "Russia"          = 144500000,
+                  "Spain"           =  46660000,
+                  "Sweden"          =  10120000,
+                  "Switzerland"     =   8570000,
+                  "United Kingdom"  =  66440000,
+                  "US"              = 327200000
                   ) %>%
   melt(variable.name = "Country/Region", value.name = "pop", measure.vars = names(.))
 
@@ -191,6 +192,8 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     # Drop early observations
     data[, Dato := as.Date(Dato)]
     data <- data[Dato >= data[Total > 1, min(Dato)], ]
+    # ggplot(data, aes(x = Dato, y = Total)) + geom_bar(stat = "identity") + geom_line(data = data[, .(Dato, "Total" =zoo::rollmean(Total, k = 7, fill = NA, align = "right"))], color = "red")
+    
     # Estimate R
     mean_si <- 4.7
     std_si <- mean_si/2
@@ -265,6 +268,8 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     
     # Drop early observations
     data <- data[date >= data[NewPositive > 1, min(date)], ]
+    # ggplot(data, aes(x = date, y = NewPositive)) + geom_bar(stat = "identity") + geom_line(data = data[, .(date, "NewPositive" =zoo::rollmean(NewPositive, k = 7, fill = NA, align = "right"))], color = "red")
+    
     # Estimate R
     mean_si <- 4.7
     std_si <- mean_si/2
@@ -564,24 +569,21 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     saveRDS(plot, paste0(data_path, "reproduction_rate_region.RDS"))
   }
   
-  ## Generate map ----
+  ## Generate map - reproduction rate----
   {
     # Load cases per municipality
-    res <- list()
-    for (date in list.dirs(paste0(data_path, "zip_file"), full.names = FALSE)[-1]){
+    res <- mclapply(list.dirs(paste0(data_path, "zip_file"), full.names = FALSE)[-1], function(date){
       temp <- fread(paste0(data_path, "zip_file/", date, "/Municipality_test_pos.csv"), dec = ",")
       temp[, Antal_testede := as.numeric(str_remove(Antal_testede, "[.]"))]
       temp[, `Antal_bekræftede_COVID-19` := as.numeric(str_remove(`Antal_bekræftede_COVID-19`, "[<.]"))]
       temp[, Befolkningstal := as.numeric(str_remove(Befolkningstal, "[.]"))]
       temp[, `Kumulativ_incidens_(per_100000)` := as.numeric(str_remove(`Kumulativ_incidens_(per_100000)`, "[<.]"))]
       temp[, date := date]
-      
-      res[[date]] <- temp
-    }
+    }, mc.cores = 2)
     
     data <- rbindlist(res)
     setkey(data, Kommune_(id), date)
-    data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, `Antal_bekræftede_COVID-19`)]
+    data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, `Antal_bekræftede_COVID-19`, Befolkningstal)]
     data[, date := as.Date(date)]
     
     # Impute missing
@@ -597,9 +599,9 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     
     data[, new_cases := `Antal_bekræftede_COVID-19`- shift(`Antal_bekræftede_COVID-19`, n = 1, type = "lag"), by = "Kommune_(id)"]
     data[new_cases < 0, new_cases := 0]
-    data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, new_cases)]
+    data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, new_cases, Befolkningstal)]
     
-    data[!is.na(new_cases), new_cases := round(zoo::rollmean(new_cases, k = 3, fill = NA, align = "right")), by = `Kommune_(id)`]
+    data[!is.na(new_cases), new_cases := round(zoo::rollmean(new_cases, k = 5, fill = NA, align = "right")), by = `Kommune_(id)`]
     
     # Estimate R
     mean_si <- 4.7
@@ -665,9 +667,9 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
   ## Generate animate map ----
   {
     # Map Plot data
-    mapPlotData <- vector(mode = "list", length = plotData[, length(unique(t_end))])
+    mapPlotData <- vector(mode = "list", length = 30) # Only plot the last 30 days
     
-    mapPlotData <- mclapply(plotData[, unique(t_end)], function(N){
+    mapPlotData <- mclapply(seq(from = plotData[, max(t_end)-29], to = plotData[, max(t_end)]), function(N){
       temp <- mapDK(data = plotData[t_end == N],
                     values = "Mean(R)",
                     id = "Kommune",
@@ -714,7 +716,120 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     
     anim_save(paste0(data_path, "mapAnimation.gif"),
               animation = animation)
+    rm(anim, animation)
   }
+  
+  ## Generate map - cases per 100.000 last 7 days ----
+  {
+    # Load cases per municipality
+    res <- mclapply(list.dirs(paste0(data_path, "zip_file"), full.names = FALSE)[-1], function(date){
+      temp <- fread(paste0(data_path, "zip_file/", date, "/Municipality_test_pos.csv"), dec = ",")
+      temp[, Antal_testede := as.numeric(str_remove(Antal_testede, "[.]"))]
+      temp[, `Antal_bekræftede_COVID-19` := as.numeric(str_remove(`Antal_bekræftede_COVID-19`, "[<.]"))]
+      temp[, Befolkningstal := as.numeric(str_remove(Befolkningstal, "[.]"))]
+      temp[, `Kumulativ_incidens_(per_100000)` := as.numeric(str_remove(`Kumulativ_incidens_(per_100000)`, "[<.]"))]
+      temp[, date := date]
+    }, mc.cores = 2)
+    
+    data <- rbindlist(res)
+    setkey(data, Kommune_(id), date)
+    data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, `Antal_bekræftede_COVID-19`, Befolkningstal)]
+    data[, date := as.Date(date)]
+    
+    # Impute missing
+    helper <- expand.grid(seq.Date(data[, min(date)], data[, max(date)], by = "day"), data[, unique(`Kommune_(navn)`)]) %>% data.table()
+    names(helper) <- c("date", "Kommune_(navn)")
+    data <- merge(helper, data, by = c("date", "Kommune_(navn)"), all.x = TRUE)
+    data[, count_na := sum(is.na(`Antal_bekræftede_COVID-19`))/.N, by = "Kommune_(navn)"]
+    data <- data[count_na < .5]
+    data[, count_na := NULL]
+    library(imputeTS)
+    data[, `Antal_bekræftede_COVID-19` := round(na_interpolation(`Antal_bekræftede_COVID-19`)), by = "Kommune_(navn)"]
+    data[, `Kommune_(id)` := median(`Kommune_(id)`, na.rm = TRUE), by = "Kommune_(navn)"]
+    
+    data[, new_cases := `Antal_bekræftede_COVID-19`- shift(`Antal_bekræftede_COVID-19`, n = 1, type = "lag"), by = "Kommune_(id)"]
+    data[new_cases < 0, new_cases := 0]
+    data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, new_cases, Befolkningstal)]
+    
+    data[!is.na(new_cases), new_cases := round(zoo::rollmean(new_cases, k = 7, fill = NA, align = "right")), by = `Kommune_(id)`]
+    
+      # Add new cases incidense
+      data[, Befolkningstal := median(Befolkningstal, na.rm = TRUE), by = "Kommune_(id)"]
+      data[, new_cases_incidense := new_cases/(Befolkningstal/100000)]
+      
+      # Generate mapPlotData
+      mapPlotData <- mapDK(data = data[!is.na(new_cases_incidense) & date == max(date),], 
+                           values = "new_cases_incidense",
+                           id = "Kommune_(navn)",
+                           detail = "municipal",
+                           show_missing = TRUE)$data
+      setDT(mapPlotData)
+      
+      mapPlotData[values >=4, values := 4] # Truncated values above 4
+      
+      plot <- ggplot(mapPlotData) +
+        geom_polypath(aes(long, lat, group = group, fill = values)) +
+        geom_path(aes(long, lat, group = group), size = .2) +
+        scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = 2, na.value = "#9e9e9e", limits = c(0,4), name = "Cases per. 100,000", aesthetics = "fill") +
+        theme_void() +
+        coord_fixed(ratio = 1.85) +
+        theme(legend.position = c(.87, .7)) +
+        ggtitle("Confirmed daily cases per 100,000 during last 7 days")
+      
+      dpi <- 196
+      ggsave(paste0(data_path, "map_confirmed_cases_7_day.png"),
+             height = 1200/dpi,
+             width = 1600/dpi,
+             dpi = dpi)
+      rm(plot)
+      gc()
+  }
+  
+  ## Generate animate map ----
+  {
+    # Map Plot data
+    mapPlotData <- vector(mode = "list", length = 30) # Only plot the last 30 days
+    
+    mapPlotData <- mclapply(seq(from = data[!is.na(new_cases_incidense), max(date)-29], to = data[!is.na(new_cases_incidense), max(date)], by = "days"), function(i){
+      temp <- mapDK(data = data[date == i,], 
+                    values = "new_cases_incidense",
+                    id = "Kommune_(navn)",
+                    detail = "municipal",
+                    show_missing = TRUE)$data
+      setDT(temp)
+      temp[, date := i]
+      temp
+    })
+    
+    mapPlotData <- rbindlist(mapPlotData)
+    
+    mapPlotData[values >=4, values := 4] # Truncated values above 4
+    
+    # Animation
+    mapPlotData <- mapPlotData[, .(long, lat, values, group, date)]
+    gc()
+    anim <- ggplot(mapPlotData) +
+      geom_polypath(aes(long, lat, group = group, fill = values)) +
+      geom_path(aes(long, lat, group = group), size = .2) +
+      scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = 2, na.value = "#9e9e9e", limits = c(0,4), name = "Cases per. 100,000", aesthetics = "fill") +
+      theme_void() +
+      coord_fixed(ratio = 1.85) +
+      theme(legend.position = c(.87, .7)) +
+      transition_time(date) +
+      ggtitle("Confirmed daily cases per 100,000 during the last 7 days \n Date: {frame_time}. Progress: {frame}%")
+    
+    animation <- animate(anim,
+                         height = 1200,
+                         width = 1600,
+                         res = 192,
+                         nframes = 150,
+                         fps = 10,
+                         end_pause = 50)
+    
+    anim_save(paste0(data_path, "mapAnimation_cases_7_day.gif"),
+              animation = animation)
+  }
+  
 }
 
 

@@ -35,6 +35,14 @@ dashboardPage(
         type="text/css",
         "#map_R img {max-width: 95%; max-height: 600px; width: auto; height: auto}"
       )),
+      tags$head(tags$style(
+        type="text/css",
+        "#map_cases_7_day img {max-width: 95%; max-height: 600px; width: auto; height: auto}"
+      )),
+      tags$head(tags$style(
+        type="text/css",
+        "#animated_map_cases_7_day img {max-width: 95%; max-height: 600px; width: auto; height: auto}"
+      )),
       
       tabItems(
         # Tab: tab_dashboard ----------------------------------------------------
@@ -56,14 +64,17 @@ dashboardPage(
                        withSpinner(plotlyOutput("estimated_R_cases", height = "140%"),
                                    type = 4
                        )),
+              tabPanel("By region",
+                       withSpinner(plotlyOutput("estimated_R_region", height = "140%"),
+                                   type = 4)),
               width = 6
             ),
             # Map with reproduction rate ----
             tabBox(
-              title = "Map",
+              title = "Reproduction rate map",
               id = "map_box",
               side = "right",
-              tabPanel(lubridate::today(),
+              tabPanel(list.dirs("/home/nicolai/forslevdata-docker/shinyapps/corona/data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max(),
                        withSpinner(
                          imageOutput("map_R", height = "auto"),
                          type = 4)),
@@ -77,14 +88,18 @@ dashboardPage(
           
           # Second row ----
           fluidRow(
-            # Reproduction rate by region
+            # Cases per 100000 last 7 days
             tabBox(
-              title = "Reproduction rate by region",
-              id = "reproduction_rate_region",
+              title = "Daily cases per 100,000 last 7 days",
+              id = "cases_rate",
               side = "right",
-              tabPanel("By region",
-                       withSpinner(plotlyOutput("estimated_R_region", height = "140%"),
+              tabPanel(list.dirs("/home/nicolai/forslevdata-docker/shinyapps/corona/data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max(),
+                       withSpinner(imageOutput("map_cases_7_day", height = "auto"),
                                    type = 4)),
+              tabPanel("Animated",
+                       withSpinner(
+                         imageOutput("animated_map_cases_7_day", height = "auto"),
+                         type = 4)),
               width = 6
             ),
             # World
