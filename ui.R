@@ -1,4 +1,4 @@
-
+library(magrittr)
 
 ui <- function(request){
 dashboardPage(
@@ -64,17 +64,37 @@ dashboardPage(
                        withSpinner(plotlyOutput("estimated_R_cases", height = "140%"),
                                    type = 4
                        )),
-              tabPanel("By region",
+              tabPanel("By region (hospitalisations)",
                        withSpinner(plotlyOutput("estimated_R_region", height = "140%"),
                                    type = 4)),
-              width = 6
+              width = 6,
+              selected = "Cases"
             ),
+            # Cases per 100000 last 7 days
+            tabBox(
+              title = "Daily cases per 100,000 last 7 days",
+              id = "cases_rate",
+              side = "right",
+              tabPanel(list.dirs("data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max(),
+                       withSpinner(imageOutput("map_cases_7_day", height = "auto"),
+                                   type = 4)),
+              tabPanel("Animated",
+                       withSpinner(
+                         imageOutput("animated_map_cases_7_day", height = "auto"),
+                         type = 4)),
+              selected = "Animated",
+              width = 6
+            )
+          ),
+          
+          # Second row ----
+          fluidRow(
             # Map with reproduction rate ----
             tabBox(
               title = "Reproduction rate map",
               id = "map_box",
               side = "right",
-              tabPanel(list.dirs("/home/nicolai/forslevdata-docker/shinyapps/corona/data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max(),
+              tabPanel(list.dirs("data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max(),
                        withSpinner(
                          imageOutput("map_R", height = "auto"),
                          type = 4)),
@@ -83,26 +103,8 @@ dashboardPage(
                          imageOutput("animated_map", height = "auto"),
                          type = 4)),
               width = 6
-            )
-          ),
-          
-          # Second row ----
-          fluidRow(
-            # Cases per 100000 last 7 days
-            tabBox(
-              title = "Daily cases per 100,000 last 7 days",
-              id = "cases_rate",
-              side = "right",
-              tabPanel(list.dirs("/home/nicolai/forslevdata-docker/shinyapps/corona/data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max(),
-                       withSpinner(imageOutput("map_cases_7_day", height = "auto"),
-                                   type = 4)),
-              tabPanel("Animated",
-                       withSpinner(
-                         imageOutput("animated_map_cases_7_day", height = "auto"),
-                         type = 4)),
-              width = 6
             ),
-            # World
+            # World ----
             tabBox(
               title = "World situation",
               id = "world_siuation",
@@ -138,7 +140,8 @@ dashboardPage(
                   label = "Confidence intervals", 
                   status = "primary",
                   right = TRUE
-                ),sliderInput("days",
+                ),
+              sliderInput("days",
                               label = "Days",
                               min = 1,
                               max = 100,
