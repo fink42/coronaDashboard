@@ -29,6 +29,9 @@ server <- function(input, output, session) {
                                         filePath = "data/plotData.fst",
                                         readFunc = read_fst,
                                         as.data.table = TRUE)
+    # AutoUpdate function every 30 min
+    autoUpdate <- reactiveTimer(1000*60*30)
+    
     dataFunction2 <- reactive({
       data <- reactive_data()
       data[Type == "Prediction", prediction_n := 1:.N, by = c("Country/Region", "variable")]
@@ -152,7 +155,6 @@ server <- function(input, output, session) {
         
     })
 
-    
     # Deaths plot corrected for onset ----
     output$onsetDeaths <- renderPlotly({
         plotData <- dataFunction2()
@@ -186,37 +188,42 @@ server <- function(input, output, session) {
     
     # Plot with estimated R (based on hospitalization)----
     output$estimated_R <- renderPlotly({
+      autoUpdate()
       plot <- readRDS("data/reproduction_rate.RDS")
       plot
     })
     
     # Plot with estimated R (based on confirmed cases)----
     output$estimated_R_cases <- renderPlotly({
+      autoUpdate()
       plot <- readRDS("data/reproduction_rate_cases.RDS")
       plot
     })
     
     # Plot with estimated R - by region (based on hospitalization)----
     output$estimated_R_region <- renderPlotly({
+      autoUpdate()
       plot <- readRDS("data/reproduction_rate_region.RDS")
       plot
     }) 
     
     # Map with estimated R per municipality ----
     output$map_R <- renderImage({
+      autoUpdate()
       list(src = "data/map.png",
            contentType = "image/png")
     }, deleteFile = FALSE)
     
     # Map with cases per 100,000 last 7 days ----
     output$map_cases_7_day <- renderImage({
+      autoUpdate()
       list(src = "data/map_confirmed_cases_7_day.png",
            contentType = "image/png")
     }, deleteFile = FALSE)
     
     # Animated map ----
     output$animated_map <- renderImage({
-      
+      autoUpdate()
       list(src = "data/mapAnimation.gif",
            contentType = 'image/gif')
       
@@ -224,7 +231,7 @@ server <- function(input, output, session) {
     
     # Animated map cases per 100,000 last 7 days ----
     output$animated_map_cases_7_day <- renderImage({
-      
+      autoUpdate()
       list(src = "data/mapAnimation_cases_7_day.gif",
            contentType = 'image/gif')
       
