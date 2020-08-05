@@ -8,6 +8,7 @@ library(EpiEstim)
 library(mapDK)
 library(ggpolypath)
 library(plotly)
+library(gganimate)
 
 
 # Define path for data storage
@@ -59,6 +60,7 @@ pop <- data.table("Austria"         =   8822000,
                   "Italy"           =  60480000,
                   "Japan"           = 126500000,
                   "Korea, South"    =  51640000,
+                  "Mexico"          = 126200000,
                   "Norway"          =   5368000,
                   "Peru"            =  31990000,
                   "Russia"          = 144500000,
@@ -168,6 +170,54 @@ new <- data.table("date" = Sys.time(),
 new <- rbindlist(list(read_fst(paste0(data_path, "timing.fst"), as.data.table = TRUE),
                       new))
 write_fst(new, paste0(data_path, "timing.fst"))
+
+## Map of incidense in US ----
+  # Load latest data
+  data <- fread("https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv",
+               fill = TRUE)
+  data2 <- fread(paste0("https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_daily_reports_us/", format(lubridate::today()-1, "%m-%d-%Y"), ".csv"))
+  data2[, inhabitants_in_100k := People_Tested/Testing_Rate]
+  
+  data <- melt(data,
+               id.vars = c("Province_State", "Admin2"),
+               measure.vars = grep("/20", names(data), value = TRUE),
+               variable.name = "Date",
+               value.name = "Cases")
+  data <- data[, sum(Cases, na.rm = TRUE), by = c("Province_State", "Date")]
+  setnames(data, "V1", "Cases")
+  data[, Date := as.Date(Date, format = "%m/%d/%Y")]
+  
+  # Merge with inhabitants
+  data <- merge(data, data2[, .(Province_State, inhabitants_in_100k)], by = "Province_State")
+  
+  # Generate new cases
+  data[, new_cases := Cases-shift(Cases, n = 1, type = "lag"), by = "Province_State"]
+  data[, new_cases_100k := new_cases/inhabitants_in_100k]
+  
+  # Average last 7 days
+  data[, average_new_cases_100k_7d := round(zoo::rollmean(new_cases_100k, k = 7, fill = NA, align = "right")), by = "Province_State"]
+  
+  # Load US map
+  us_map <- read_fst(paste0(data_path, "us_states_coord.fst"), as.data.table = TRUE)
+  plot_data <- merge(data, us_map, by.x = "Province_State" , by.y = "full", allow.cartesian = TRUE)
+  
+  # Generate plot
+  plot <- ggplot(plot_data[Date == max(Date)]) +
+    geom_polypath(aes(x, y, group = group, fill = average_new_cases_100k_7d)) +
+    geom_path(aes(x, y, group = group), size = .2) +
+    scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = 20, na.value = "#9e9e9e", name = "Cases per. 100,000", aesthetics = "fill") +
+    theme_void() +
+    coord_fixed(ratio = 1.35) +
+    ggtitle("Confirmed daily cases per 100,000 during last 7 days")
+  
+  dpi <- 196
+  ggsave(paste0(data_path, "us_map_confirmed_cases_7_day.png"),
+         height = 1200/dpi,
+         width = 1600/dpi,
+         dpi = dpi)
+  rm(plot)
+  gc()
+
 }
 
 ## Zip-file from SSI ----
@@ -175,6 +225,7 @@ page <- "https://www.ssi.dk/sygdomme-beredskab-og-forskning/sygdomsovervaagning/
 html <- paste(readLines(page))
 link <- tryCatch({grep("data-epidemiologisk", tolower(html), value = TRUE)  %>%
     str_match_all("<a href=\"(.*?)\"") %>% .[[1]] %>% .[1,2]}, error = function(e){return(e)})
+link <- str_remove(link, "\t")
 
 if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file"), full.names = FALSE) & grepl(format(lubridate::today(), "%d%m%Y"), link)){
   # Create folder
@@ -210,6 +261,7 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     plotdata <- res$R
     plotdata[, date :=  res$dates[8:length(res$dates)]]
     plotdata <- plotdata[date <= max(date)-4] # Remove 4 latest observations
+    plotdata <- plotdata[date >= Sys.Date()-90] # Only plot last 3 months
     plot <- plot_ly(data = plotdata,
                     x = ~date,
                     y = ~`Quantile.0.975(R)`,
@@ -250,7 +302,7 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
                                          fixedrange = TRUE),
                             yaxis = list(title = 'R',
                                          fixedrange = TRUE,
-                                         range = c(0, 5.6))) %>%
+                                         range = c(0, 3))) %>%
       config(displayModeBar = FALSE)
     
     # Save
@@ -286,6 +338,7 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     plotdata <- res$R
     plotdata[, date :=  res$dates[8:length(res$dates)]]
     plotdata <- plotdata[date <= max(date)-4] # Remove 4 latest observations
+    plotdata <- plotdata[date >= Sys.Date()-90] # Only plot last 3 months
     plot <- plot_ly(data = plotdata,
                     x = ~date,
                     y = ~`Quantile.0.975(R)`,
@@ -326,7 +379,7 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
                                          fixedrange = TRUE),
                             yaxis = list(title = 'R',
                                          fixedrange = TRUE,
-                                         range = c(0, 5.6))) %>%
+                                         range = c(0, 3))) %>%
       config(displayModeBar = FALSE)
     
     # Save
@@ -367,6 +420,7 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     
     # Plot
     plotData <- plotData[date <= max(date)-4] # Remove 4 latest observations
+    plotdata <- plotdata[date >= Sys.Date()-90] # Only plot last 3 months
     #plotData <- plotData[date >= "2020-04-01"]
     
     plot <- plot_ly(data = plotData[Region == "Total"],
@@ -636,6 +690,9 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     setnames(plotData, "Kommune_(navn)", "Kommune")
     plotData[, Kommune := as.factor(`Kommune`)]
     
+    # Try to correct for municipalities with no new cases
+    plotData[`Std(R)`/`Mean(R)` > 0.8 & `Quantile.0.025(R)` < 0.3, `Mean(R)` := NA]
+    
     # Map Plot
     mapPlotData <- mapDK(data = plotData[t_end == max(t_end)], #  & `Mean(R)` < 4
                          values = "Mean(R)",
@@ -655,7 +712,7 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
       guides(colour=guide_legend("Too few cases", override.aes=list(color="#9e9e9e", fill = "#9e9e9e"))) +
       coord_fixed(ratio = 1.85) +
       theme(legend.position = c(.87, .7)) +
-      ggtitle("Reproduction rate per municipality estimated using confirmed cases")
+      ggtitle(paste0("Reproduction rate per municipality estimated using confirmed cases. \nDate: ",data[, max(date)]))
     
     dpi <- 196
     ggsave(paste0(data_path, "map.png"),
@@ -765,16 +822,20 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
                            show_missing = TRUE)$data
       setDT(mapPlotData)
       
-      mapPlotData[values >=4, values := 4] # Truncated values above 4
+      # Define truncating value
+      truncating_value <- data[date >= max(date)-29 & new_cases_incidense > 0, quantile(new_cases_incidense, probs = .95)] %>%
+        round()
+      
+      mapPlotData[values >= truncating_value, values := truncating_value] # Truncated values above truncating value
       
       plot <- ggplot(mapPlotData) +
         geom_polypath(aes(long, lat, group = group, fill = values)) +
         geom_path(aes(long, lat, group = group), size = .2) +
-        scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = 2, na.value = "#9e9e9e", limits = c(0,4), name = "Cases per. 100,000", aesthetics = "fill") +
+        scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = truncating_value/2, na.value = "#9e9e9e", limits = c(0,truncating_value), name = paste0("Cases per 100,000\nTruncated at ", truncating_value), aesthetics = "fill") +
         theme_void() +
         coord_fixed(ratio = 1.85) +
         theme(legend.position = c(.87, .7)) +
-        ggtitle("Confirmed daily cases per 100,000 during last 7 days")
+        ggtitle(paste0("Confirmed daily cases per 100,000 during last 7 days \n Date: ", data[, max(date)]))
       
       dpi <- 196
       ggsave(paste0(data_path, "map_confirmed_cases_7_day.png"),
@@ -803,7 +864,11 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     
     mapPlotData <- rbindlist(mapPlotData)
     
-    mapPlotData[values >=4, values := 4] # Truncated values above 4
+    # Define truncating value
+    truncating_value <- data[date >= max(date)-29 & new_cases_incidense > 0, quantile(new_cases_incidense, probs = .95)] %>%
+      round()
+    
+    mapPlotData[values >= truncating_value, values := truncating_value]
     
     # Animation
     mapPlotData <- mapPlotData[, .(long, lat, values, group, date)]
@@ -811,7 +876,7 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     anim <- ggplot(mapPlotData) +
       geom_polypath(aes(long, lat, group = group, fill = values)) +
       geom_path(aes(long, lat, group = group), size = .2) +
-      scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = 2, na.value = "#9e9e9e", limits = c(0,4), name = "Cases per. 100,000", aesthetics = "fill") +
+      scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = truncating_value/2, na.value = "#9e9e9e", limits = c(0,truncating_value), name = paste0("Cases per 100,000\nTruncated at ", truncating_value), aesthetics = "fill") +
       theme_void() +
       coord_fixed(ratio = 1.85) +
       theme(legend.position = c(.87, .7)) +
@@ -830,6 +895,8 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
               animation = animation)
   }
   
+  rm(list = ls())
+  gc()
 }
 
 
