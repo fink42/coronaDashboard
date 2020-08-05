@@ -302,7 +302,12 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
                                          fixedrange = TRUE),
                             yaxis = list(title = 'R',
                                          fixedrange = TRUE,
-                                         range = c(0, 3))) %>%
+                                         range = c(0, 3)),
+                            annotations = 
+                              list(x = 0, y = 0, text = paste0("Updated: ", lubridate::today()), 
+                                   showarrow = F, xref='paper', yref='paper', 
+                                   xanchor='left', yanchor='auto', xshift=-5, yshift=-56,
+                                   font=list(size=10)))%>%
       config(displayModeBar = FALSE)
     
     # Save
@@ -379,7 +384,12 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
                                          fixedrange = TRUE),
                             yaxis = list(title = 'R',
                                          fixedrange = TRUE,
-                                         range = c(0, 3))) %>%
+                                         range = c(0, 3)),
+                            annotations = 
+                              list(x = 0, y = 0, text = paste0("Updated: ", lubridate::today()), 
+                                   showarrow = F, xref='paper', yref='paper', 
+                                   xanchor='left', yanchor='auto', xshift=-5, yshift=-56,
+                                   font=list(size=10))) %>%
       config(displayModeBar = FALSE)
     
     # Save
@@ -617,7 +627,12 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
                                          range = c(0, 6)),
                             legend = list(orientation = "h",
                                           xanchor = "center",
-                                          x = 0.5)) %>%
+                                          x = 0.5),
+                            annotations = 
+                              list(x = 0, y = 0, text = paste0("Updated: ", lubridate::today()), 
+                                   showarrow = F, xref='paper', yref='paper', 
+                                   xanchor='left', yanchor='auto', xshift=-5, yshift=-56,
+                                   font=list(size=10))) %>%
       config(displayModeBar = FALSE)
     # Save
     saveRDS(plot, paste0(data_path, "reproduction_rate_region.RDS"))
@@ -706,12 +721,14 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     plot <- ggplot(mapPlotData) +
       geom_polypath(aes(long, lat, group = group, fill = values, color = "")) +
       geom_path(aes(long, lat, group = group), size = .2) +
-      scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = 1.5, na.value = "#9e9e9e", limits = c(0,3), name = "Reproduction rate (R)", aesthetics = "fill") +
+      scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = 1.5, na.value = "#9e9e9e", limits = c(0,3), name = paste0("Reproduction rate (R)\nTruncated at ",3), aesthetics = "fill") +
       theme_void() +
       scale_color_manual(values = NA) +
       guides(colour=guide_legend("Too few cases", override.aes=list(color="#9e9e9e", fill = "#9e9e9e"))) +
       coord_fixed(ratio = 1.85) +
-      theme(legend.position = c(.87, .7)) +
+      theme(legend.position = c(.87, .7),
+            plot.caption = element_text(hjust = 0)) +
+      labs(caption = paste0("Updated: ",lubridate::today())) +
       ggtitle(paste0("Reproduction rate per municipality estimated using confirmed cases. \nDate: ",data[, max(date)]))
     
     dpi <- 196
@@ -754,12 +771,14 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     anim <- ggplot(mapPlotData) +
       geom_polypath(aes(long, lat, group = group, fill = values, color = "")) +
       geom_path(aes(long, lat, group = group), size = .2) +
-      scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = 1.5, na.value = "#9e9e9e", limits = c(0,3), name = "Reproduction rate (R)", aesthetics = "fill") +
+      scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = 1.5, na.value = "#9e9e9e", limits = c(0,3), name = paste0("Reproduction rate (R)\nTruncated at ",3), aesthetics = "fill") +
       theme_void() +
       scale_color_manual(values = NA) +
       guides(colour=guide_legend("Too few cases", override.aes=list(color="#9e9e9e", fill = "#9e9e9e"))) +
       coord_fixed(ratio = 1.85) +
-      theme(legend.position = c(.87, .7)) +
+      theme(legend.position = c(.87, .7),
+            plot.caption = element_text(hjust = 0)) +
+      labs(caption = paste0("Updated: ",lubridate::today())) +
       transition_time(date) +
       ggtitle('Date: {frame_time}. Progress: {frame}%')
     
@@ -834,7 +853,9 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
         scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = truncating_value/2, na.value = "#9e9e9e", limits = c(0,truncating_value), name = paste0("Cases per 100,000\nTruncated at ", truncating_value), aesthetics = "fill") +
         theme_void() +
         coord_fixed(ratio = 1.85) +
-        theme(legend.position = c(.87, .7)) +
+        theme(legend.position = c(.87, .7),
+              plot.caption = element_text(hjust = 0)) +
+        labs(caption = paste0("Updated: ",lubridate::today())) +
         ggtitle(paste0("Confirmed daily cases per 100,000 during last 7 days \n Date: ", data[, max(date)]))
       
       dpi <- 196
@@ -879,7 +900,9 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
       scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = truncating_value/2, na.value = "#9e9e9e", limits = c(0,truncating_value), name = paste0("Cases per 100,000\nTruncated at ", truncating_value), aesthetics = "fill") +
       theme_void() +
       coord_fixed(ratio = 1.85) +
-      theme(legend.position = c(.87, .7)) +
+      theme(legend.position = c(.87, .7),
+            plot.caption = element_text(hjust = 0)) +
+      labs(caption = paste0("Updated: ",lubridate::today())) +
       transition_time(date) +
       ggtitle("Confirmed daily cases per 100,000 during the last 7 days \n Date: {frame_time}. Progress: {frame}%")
     
