@@ -70,7 +70,7 @@ dashboardPage(
               width = 6,
               selected = "Cases"
             ),
-            # Cases per 100000 last 7 days
+            # Cases per 100000 last 7 days ----
             tabBox(
               title = "Daily cases per 100,000 last 7 days",
               id = "cases_rate",
@@ -157,7 +157,44 @@ dashboardPage(
             
           ),
           
+        # Third row ----
+        fluidRow(
+          # New daily cases ----
+          tabBox(
+            title = "New daily cases DK (last 4 months)",
+            id = "newcases",
+            side = "right",
+            # Plot
+            tabPanel("National",
+                     withSpinner(plotlyOutput("new_cases", height = "140%"),
+                                 type = 4)
+                     #tags$hr(),
+                      # Controls
+                     #dateRangeInput(
+                    #   "new_cases_date_range",
+                    #   label = "Date range:",
+                    #   start = lubridate::today()-lubridate::days(30*3),
+                    #   end = lubridate::today(),
+                    #   min = as.Date("2020-03-02"),
+                    #   max = lubridate::today()
+                    # ),
+            ),
+            tabPanel("Municipality",
+                     withSpinner(plotlyOutput("new_cases_municipality", height = "140%"),
+                                 type = 4),
+                     tags$hr(),
+                     selectizeInput("selected_municipality",
+                                    label = "Municipality",
+                                    choices = readRDS("data/municipalities_dk.RDS"),
+                                    selected = "Aarhus")
+            ),
+                     
+            width = 12,
+            selected = "National"
+          )
         ),
+          
+        ), # Close tab_dashboard
         # Tab: tab_about -----------------------------------------------------
         tabItem(
           "tab_about",

@@ -29,8 +29,6 @@ server <- function(input, output, session) {
                                         filePath = "data/plotData.fst",
                                         readFunc = read_fst,
                                         as.data.table = TRUE)
-    # AutoUpdate function every 30 min
-    autoUpdate <- reactiveTimer(1000*60*30)
     
     dataFunction2 <- reactive({
       data <- reactive_data()
@@ -38,6 +36,12 @@ server <- function(input, output, session) {
       data[is.na(prediction_n), prediction_n := 0]
       data
     })
+    
+    # AutoUpdate function every 30 min
+    autoUpdate <- reactiveTimer(1000*60*30)
+    
+    # Define path for data storage
+    data_path <- "data/"
     
     # Cases plot ----
     output$confirmedCases <- renderPlotly({
@@ -236,6 +240,110 @@ server <- function(input, output, session) {
            contentType = 'image/gif')
       
     }, deleteFile = FALSE)
+    
+    # Plot with new daily cases ----
+    output$new_cases <- renderPlotly({
+      autoUpdate()
+      # Load data
+        latest <- list.dirs("data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max()
+        data <- fread(paste0("data/zip_file/", latest, "/Test_pos_over_time.csv"), dec = ",")
+      # Clean data
+        data[, NewPositive := as.numeric(str_remove(NewPositive, "[.]"))]
+        data <- data[1:(nrow(data)-2), .("date" = as.Date(Date), NewPositive)]
+      
+      # Drop early observations
+        data <- data[date >= data[NewPositive > 1, min(date)], ]
+      
+        #data <- data[date >= input$new_cases_date_range[1] & date <= input$new_cases_date_range[2], ]
+        
+      # Plot
+        p <- plot_ly(data = data[date >= lubridate::today()-lubridate::days(30*4), ],
+                     x = ~date,
+                     y = ~NewPositive,
+                     type = "bar",
+                     showlegend = FALSE,
+                     name = 'New daily cases',
+                     text = ~paste("Date:", date,
+                                   "<br>New cases:", NewPositive),
+                     hoverinfo = "text") %>%
+          layout(#title = "New daily cases",
+                 xaxis = list(title = 'Date',
+                              fixedrange = TRUE),
+                 yaxis = list(title = 'Cases',
+                              fixedrange = TRUE),
+                 annotations = 
+                   list(x = 0, y = 0, text = paste0("Updated: ", latest), 
+                        showarrow = F, xref='paper', yref='paper', 
+                        xanchor='left', yanchor='auto', xshift=-5, yshift=-56,
+                        font=list(size=10))) %>%
+          config(displayModeBar = FALSE)
+        p
+      
+    })
+    
+    # Plot with daily cases by municipality ----
+    output$new_cases_municipality <- renderPlotly({
+      autoUpdate()
+      # Load cases per municipality
+      res <- mclapply(list.dirs(paste0(data_path, "zip_file"), full.names = FALSE)[-1], function(date){
+        temp <- fread(paste0(data_path, "zip_file/", date, "/Municipality_test_pos.csv"), dec = ",")
+        temp[, Antal_testede := as.numeric(str_remove(Antal_testede, "[.]"))]
+        temp[, `Antal_bekræftede_COVID-19` := as.numeric(str_remove(`Antal_bekræftede_COVID-19`, "[<.]"))]
+        temp[, Befolkningstal := as.numeric(str_remove(Befolkningstal, "[.]"))]
+        temp[, `Kumulativ_incidens_(per_100000)` := as.numeric(str_remove(`Kumulativ_incidens_(per_100000)`, "[<.]"))]
+        temp[, date := date]
+      }, mc.cores = 2)
+      
+      data <- rbindlist(res)
+      setkey(data, Kommune_(id), date)
+      data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, `Antal_bekræftede_COVID-19`, Befolkningstal)]
+      data[, date := as.Date(date)]
+      
+      # Impute missing
+      helper <- expand.grid(seq.Date(data[, min(date)], data[, max(date)], by = "day"), data[, unique(`Kommune_(navn)`)]) %>% data.table()
+      names(helper) <- c("date", "Kommune_(navn)")
+      data[, imputed := FALSE]
+      data <- merge(helper, data, by = c("date", "Kommune_(navn)"), all.x = TRUE)
+      data[, count_na := sum(is.na(`Antal_bekræftede_COVID-19`))/.N, by = "Kommune_(navn)"]
+      data <- data[count_na < .5]
+      data[, count_na := NULL]
+      data[is.na(imputed), imputed := TRUE]
+      
+      
+      data[, `Antal_bekræftede_COVID-19` := round(imputeTS::na_interpolation(`Antal_bekræftede_COVID-19`)), by = "Kommune_(navn)"]
+      data[, `Kommune_(id)` := median(`Kommune_(id)`, na.rm = TRUE), by = "Kommune_(navn)"]
+      
+      data[, new_cases := `Antal_bekræftede_COVID-19`- shift(`Antal_bekræftede_COVID-19`, n = 1, type = "lag"), by = "Kommune_(id)"]
+      data[new_cases < 0, new_cases := 0]
+      data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, new_cases, Befolkningstal, imputed)]
+      
+      # Plot
+      latest <- list.dirs("data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max() # Used in the annotation
+      p <- plot_ly(data = data[date >= lubridate::today()-lubridate::days(30*4) & `Kommune_(navn)` == input$selected_municipality, ],
+                   x = ~date,
+                   y = ~new_cases,
+                   color = ~imputed,
+                   type = "bar",
+                   showlegend = FALSE,
+                   name = 'New daily cases',
+                   text = ~paste("Date:", date,
+                                 "<br>New cases:", new_cases,
+                                 "<br>Municipality:", `Kommune_(navn)`,
+                                 "<br>Imputed:", imputed),
+                   hoverinfo = "text") %>%
+        layout(title = input$selected_municipality,
+          xaxis = list(title = 'Date',
+                       fixedrange = TRUE),
+          yaxis = list(title = 'New cases',
+                       fixedrange = TRUE),
+          annotations = 
+            list(x = 0, y = 0, text = paste0("Updated: ", latest), 
+                 showarrow = F, xref='paper', yref='paper', 
+                 xanchor='left', yanchor='auto', xshift=-5, yshift=-56,
+                 font=list(size=10))) %>%
+        config(displayModeBar = FALSE)
+      p
+    })
     
 }
 
