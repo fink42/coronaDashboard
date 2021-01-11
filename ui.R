@@ -64,7 +64,7 @@ dashboardPage(
                        withSpinner(plotlyOutput("estimated_R_cases", height = "140%"),
                                    type = 4
                        )),
-              tabPanel("By region (hospitalisations)",
+              tabPanel("By region (cases)",
                        withSpinner(plotlyOutput("estimated_R_region", height = "140%"),
                                    type = 4)),
               width = 6,
@@ -72,7 +72,7 @@ dashboardPage(
             ),
             # Cases per 100000 last 7 days ----
             tabBox(
-              title = "Daily cases per 100,000 last 7 days",
+              title = "Cases per 100,000 last 7 days",
               id = "cases_rate",
               side = "right",
               tabPanel(list.dirs("data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max(),
@@ -186,14 +186,30 @@ dashboardPage(
                      selectizeInput("selected_municipality",
                                     label = "Municipality",
                                     choices = readRDS("data/municipalities_dk.RDS"),
-                                    selected = "Aarhus")
+                                    selected = "Odense")
             ),
                      
             width = 12,
             selected = "National"
           )
         ),
+        # Table ----
+        fluidRow(
+          tabBox(
+            title = "Latest incidence by municipality",
+            id = "incidence",
+            side = "right",
+            # Table
+            tabPanel("Incidence",
+                     withSpinner(DT::dataTableOutput("incidence_table"),
+                                 type = 4)
+            ),
+            
+            width = 12,
+            selected = "Incidence"
+          )
           
+        )
         ), # Close tab_dashboard
         # Tab: tab_about -----------------------------------------------------
         tabItem(

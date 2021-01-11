@@ -40,6 +40,46 @@ server <- function(input, output, session) {
     # AutoUpdate function every 30 min
     autoUpdate <- reactiveTimer(1000*60*30)
     
+    latestDataDate <- reactive({
+      autoUpdate()
+      list.dirs("data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max()
+    })
+    
+    dataFunction3 <- reactive({
+      autoUpdate()
+      latest <- latestDataDate()
+      
+      # Load cases per municipality
+      latest <- list.dirs("data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max()
+      data <- fread(paste0(data_path, "zip_file/", latest, "/Municipality_cases_time_series.csv"), dec = ",")
+      setnames(data, "date_sample", "date")
+      data <- melt(data, id.vars = "date", variable.name = "Kommune", value.name = "Positive")
+      data[, new_cases_7d := frollsum(Positive, n = 7, fill = NA), by = "Kommune"]
+      
+      # Merge with befolkningsdata
+      bef <- fread(paste0(data_path, "/zip_file/2020-11-17/Municipality_test_pos.csv"), dec = ",")
+      bef[`Kommune_(navn)` == "København", `Kommune_(navn)` := "Copenhagen"]
+      bef[,Befolkningstal := as.numeric(str_remove(Befolkningstal, "[.]"))]
+      data <- merge(data, bef[, .(`Kommune_(navn)`, Befolkningstal)], by.x = "Kommune", by.y = "Kommune_(navn)", all.x = TRUE)
+      
+      # Merge with number of tests
+      tests <- fread(paste0(data_path, "zip_file/", latest, "/Municipality_tested_persons_time_series.csv"), dec = ",")
+      setnames(tests, "PrDate_adjusted", "date")
+      tests <- melt(tests, id.vars = "date", variable.name = "Kommune", value.name = "Tested")
+      data <- merge(data, tests, by.x = c("date", "Kommune"), by.y = c("date", "Kommune"))
+      
+      # 7 day average
+      data[, `7_day_average` := frollmean(Positive, n = 7), by = "Kommune"]
+      data[, `7_day_average_percent` := new_cases_7d/frollsum(Tested, n = 7)*100, by = "Kommune"]
+      
+      # 7 day Incidense
+      data[, new_cases_incidense_7d := new_cases_7d/(Befolkningstal/100000)]
+      
+      # Return
+      data
+      
+    })
+    
     # Define path for data storage
     data_path <- "data/"
     
@@ -243,39 +283,59 @@ server <- function(input, output, session) {
     
     # Plot with new daily cases ----
     output$new_cases <- renderPlotly({
-      autoUpdate()
-      # Load data
-        latest <- list.dirs("data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max()
-        data <- fread(paste0("data/zip_file/", latest, "/Test_pos_over_time.csv"), dec = ",")
-      # Clean data
-        data[, NewPositive := as.numeric(str_remove(NewPositive, "[.]"))]
-        data <- data[1:(nrow(data)-2), .("date" = as.Date(Date), NewPositive)]
+      latest <- latestDataDate()
+      data <- dataFunction3()
       
-      # Drop early observations
-        data <- data[date >= data[NewPositive > 1, min(date)], ]
+      # Collapse by date
+      data <- data[, .(Positive = sum(Positive),
+                       `Befolkningstal` = sum(Befolkningstal),
+                        Tested = sum(Tested)),
+                   by = "date"]
+      # 7 day average
+      setkey(data, "date")
+      data[, new_cases_7d := frollsum(Positive, n = 7, fill = NA)]
+      data[, `7_day_average` := frollmean(Positive, n = 7)]
+      data[, `7_day_average_percent` := new_cases_7d/frollsum(Tested, n = 7)*100]
       
-        #data <- data[date >= input$new_cases_date_range[1] & date <= input$new_cases_date_range[2], ]
-        
       # Plot
-        p <- plot_ly(data = data[date >= lubridate::today()-lubridate::days(30*4), ],
+        p <- plot_ly(data = data[date >= lubridate::today()-lubridate::days(30*6) & date <= max(date)-2, ],
                      x = ~date,
-                     y = ~NewPositive,
+                     y = ~Positive,
                      type = "bar",
                      showlegend = FALSE,
                      name = 'New daily cases',
                      text = ~paste("Date:", date,
-                                   "<br>New cases:", NewPositive),
+                                   "<br>New cases:", Positive,
+                                   "<br>7 day average:", round(`7_day_average`, 1),
+                                   "<br>7 day positive rate:", round(`7_day_average_percent`, 2), "%"),
                      hoverinfo = "text") %>%
+          add_lines(x = ~date,
+                    y = ~`7_day_average`,
+                    showlegend = FALSE,
+                    name = "7 day average") %>%
+          add_lines(x = ~date,
+                    y = ~`7_day_average_percent`,
+                    showlegend = FALSE,
+                    name = "7 day positive rate",
+                    yaxis = "y2") %>%
           layout(#title = "New daily cases",
-                 xaxis = list(title = 'Date',
-                              fixedrange = TRUE),
-                 yaxis = list(title = 'Cases',
-                              fixedrange = TRUE),
-                 annotations = 
-                   list(x = 0, y = 0, text = paste0("Updated: ", latest), 
-                        showarrow = F, xref='paper', yref='paper', 
-                        xanchor='left', yanchor='auto', xshift=-5, yshift=-56,
-                        font=list(size=10))) %>%
+            xaxis = list(title = 'Date',
+                         fixedrange = TRUE),
+            yaxis = list(title = 'Cases',
+                         fixedrange = TRUE),
+            yaxis2= list(title = "Positive rate",
+                         fixedrange = TRUE,
+                         overlaying = "y",
+                         side = "right",
+                         showgrid = FALSE,
+                         tickformat = "%",
+                         dtick = 0.25,
+                         autotick = FALSE),
+            annotations = 
+              list(x = 0, y = 0, text = paste0("Updated: ", latest), 
+                   showarrow = F, xref='paper', yref='paper', 
+                   xanchor='left', yanchor='auto', xshift=-5, yshift=-56,
+                   font=list(size=10))) %>%
           config(displayModeBar = FALSE)
         p
       
@@ -283,66 +343,63 @@ server <- function(input, output, session) {
     
     # Plot with daily cases by municipality ----
     output$new_cases_municipality <- renderPlotly({
-      autoUpdate()
-      # Load cases per municipality
-      res <- mclapply(list.dirs(paste0(data_path, "zip_file"), full.names = FALSE)[-1], function(date){
-        temp <- fread(paste0(data_path, "zip_file/", date, "/Municipality_test_pos.csv"), dec = ",")
-        temp[, Antal_testede := as.numeric(str_remove(Antal_testede, "[.]"))]
-        temp[, `Antal_bekræftede_COVID-19` := as.numeric(str_remove(`Antal_bekræftede_COVID-19`, "[<.]"))]
-        temp[, Befolkningstal := as.numeric(str_remove(Befolkningstal, "[.]"))]
-        temp[, `Kumulativ_incidens_(per_100000)` := as.numeric(str_remove(`Kumulativ_incidens_(per_100000)`, "[<.]"))]
-        temp[, date := date]
-      }, mc.cores = 2)
+      latest <- latestDataDate()
+      data <- dataFunction3()
       
-      data <- rbindlist(res)
-      setkey(data, Kommune_(id), date)
-      data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, `Antal_bekræftede_COVID-19`, Befolkningstal)]
-      data[, date := as.Date(date)]
-      
-      # Impute missing
-      helper <- expand.grid(seq.Date(data[, min(date)], data[, max(date)], by = "day"), data[, unique(`Kommune_(navn)`)]) %>% data.table()
-      names(helper) <- c("date", "Kommune_(navn)")
-      data[, imputed := FALSE]
-      data <- merge(helper, data, by = c("date", "Kommune_(navn)"), all.x = TRUE)
-      data[, count_na := sum(is.na(`Antal_bekræftede_COVID-19`))/.N, by = "Kommune_(navn)"]
-      data <- data[count_na < .5]
-      data[, count_na := NULL]
-      data[is.na(imputed), imputed := TRUE]
-      
-      
-      data[, `Antal_bekræftede_COVID-19` := round(imputeTS::na_interpolation(`Antal_bekræftede_COVID-19`)), by = "Kommune_(navn)"]
-      data[, `Kommune_(id)` := median(`Kommune_(id)`, na.rm = TRUE), by = "Kommune_(navn)"]
-      
-      data[, new_cases := `Antal_bekræftede_COVID-19`- shift(`Antal_bekræftede_COVID-19`, n = 1, type = "lag"), by = "Kommune_(id)"]
-      data[new_cases < 0, new_cases := 0]
-      data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, new_cases, Befolkningstal, imputed)]
-      
-      # Plot
-      latest <- list.dirs("data/zip_file", full.names = FALSE)[-1] %>% as.Date() %>% max() # Used in the annotation
-      p <- plot_ly(data = data[date >= lubridate::today()-lubridate::days(30*4) & `Kommune_(navn)` == input$selected_municipality, ],
+      p <- plot_ly(data = data[date >= lubridate::today()-lubridate::days(30*6) & date <= max(date)-2 & Kommune == input$selected_municipality, ],
                    x = ~date,
-                   y = ~new_cases,
-                   color = ~imputed,
+                   y = ~Positive,
                    type = "bar",
                    showlegend = FALSE,
                    name = 'New daily cases',
                    text = ~paste("Date:", date,
-                                 "<br>New cases:", new_cases,
-                                 "<br>Municipality:", `Kommune_(navn)`,
-                                 "<br>Imputed:", imputed),
+                                 "<br>New cases:", Positive,
+                                 "<br>7 day average:", round(`7_day_average`, 1),
+                                 "<br>7 day positive rate:", round(`7_day_average_percent`, 2), "%"),
                    hoverinfo = "text") %>%
+        add_lines(x = ~date,
+                  y = ~`7_day_average`,
+                  showlegend = FALSE,
+                  name = "7 day average") %>%
+        add_lines(x = ~date,
+                  y = ~`7_day_average_percent`,
+                  showlegend = FALSE,
+                  name = "7 day positive rate",
+                  yaxis = "y2") %>%
         layout(title = input$selected_municipality,
-          xaxis = list(title = 'Date',
-                       fixedrange = TRUE),
-          yaxis = list(title = 'New cases',
-                       fixedrange = TRUE),
-          annotations = 
-            list(x = 0, y = 0, text = paste0("Updated: ", latest), 
-                 showarrow = F, xref='paper', yref='paper', 
-                 xanchor='left', yanchor='auto', xshift=-5, yshift=-56,
-                 font=list(size=10))) %>%
+               xaxis = list(title = 'Date',
+                            fixedrange = TRUE),
+               yaxis = list(title = 'New cases',
+                            fixedrange = TRUE),
+               yaxis2= list(title = "Positive rate",
+                            fixedrange = TRUE,
+                            overlaying = "y",
+                            side = "right",
+                            showgrid = FALSE,
+                            tickformat = "%"),
+               annotations = 
+                 list(x = 0, y = 0, text = paste0("Updated: ", latest), 
+                      showarrow = F, xref='paper', yref='paper', 
+                      xanchor='left', yanchor='auto', xshift=-5, yshift=-56,
+                      font=list(size=10))) %>%
         config(displayModeBar = FALSE)
       p
+    })
+    
+    # Table with incidence by municipality ----
+    output$incidence_table <- DT::renderDataTable({
+      
+      latest <- latestDataDate()
+      data <- dataFunction3()
+      
+      # Output required rows and columns
+      data <- data[date == max(date), .("Municipality" = Kommune, 
+                                        "New cases (7 days)" = new_cases_7d,
+                                        "Incidence (7 days)" = round(new_cases_incidense_7d,2),
+                                        "Percent positive (7 days)" = round(`7_day_average_percent`, 2))]
+      setorder(data, -"Incidence (7 days)")
+      data
+      
     })
     
 }
