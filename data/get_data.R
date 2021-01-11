@@ -31,7 +31,6 @@ write_fst(cases, paste0(data_path, "cases.fst"))
 write_fst(deaths, paste0(data_path, "deaths.fst"))
   
 start_time <- proc.time() # Just used for timing
-
 # Sum by country
 cases <- cases[, lapply(.SD, sum), by = "Country/Region", .SDcols = grep("/20", names(cases))]
 deaths <- deaths[, lapply(.SD, sum), by = "Country/Region", .SDcols = grep("/20", names(deaths))]
@@ -69,7 +68,7 @@ pop <- data.table("Austria"         =   8822000,
                   "Switzerland"     =   8570000,
                   "United Kingdom"  =  66440000,
                   "US"              = 327200000
-                  ) %>%
+) %>%
   melt(variable.name = "Country/Region", value.name = "pop", measure.vars = names(.))
 
 data <- merge(data, pop, by = "Country/Region")
@@ -79,63 +78,81 @@ data[, `Deaths per 100k` := Deaths/(pop/100000)]
 
 # Define day with more than 0.2 cases by country
 data[`Cases per 100k` > 0.2, Day_cases := difftime(Date, min(Date), units = "days") %>% as.numeric(), by = "Country/Region"]
-# Loop over countries
-predictionDays <- 100
-predictions_cases <- mclapply(data[, unique(`Country/Region`)], function(country, days = predictionDays){
-  # Estimate model
-  model <- drm(Cases ~ Day_cases,
-               data = data[`Country/Region` == country & !is.na(Day_cases)],
-               fct = LL.4())
-  
-  # Find latest obs.
-  latestObs <- data[`Country/Region` == country, max(Day_cases, na.rm = TRUE)]
-  
-  # Make prediction x days ahead
-  prediction <- data.table("Country/Region" = country,
-                           "Day_cases" = seq(from = 0, to = latestObs+1 + days),
-                           "Type" = "Prediction")
-  prediction[, Date := data[`Country/Region` == country & `Cases per 100k` > .2, min(Date, na.rm = TRUE)] + Day_cases]
-  prediction[, prediction_n_cases := Day_cases-latestObs]
-  prediction <- cbind(prediction, predict(model, prediction, interval = "prediction"))
-  setnames(prediction, "Prediction", "Cases")
-  setnames(prediction, "Lower", "Cases_lower")
-  setnames(prediction, "Upper", "Cases_upper")
-  # Return data
-  return(prediction)
-}, mc.cores = 2)
-
 # Define day with more than 10 deaths by country
 data[`Deaths per 100k` > .2, Day_death := difftime(Date, min(Date), units = "days") %>% as.numeric(), by = "Country/Region"]
-# Loop over countries
-predictions_deaths <- mclapply(data[, unique(`Country/Region`)], function(country, days = predictionDays){
-  # Estimate model
-  model <- drm(Deaths ~ Day_death,
-               data = data[`Country/Region` == country & !is.na(Day_death)],
-               fct = LL.4())
-  
-  # Find latest obs.
-  latestObs <- data[`Country/Region` == country, max(Day_death, na.rm = TRUE)]
-  
-  # Make prediction x days ahead
-  prediction <- data.table("Country/Region" = country,
-                           "Day_death" = seq(from = 0, to = latestObs+1 + days),
-                           "Type" = "Prediction")
-  prediction[, Date := data[`Country/Region` == country & `Deaths per 100k` > .2, min(Date, na.rm = TRUE)] + Day_death]
-  prediction <- cbind(prediction, predict(model, prediction, interval = "prediction"))
-  prediction[, prediction_n_deaths := Day_death-latestObs]
-  setnames(prediction, "Prediction", "Deaths")
-  setnames(prediction, "Lower", "Deaths_lower")
-  setnames(prediction, "Upper", "Deaths_upper")
-  
-  # Return data
-  return(prediction)
-}, mc.cores = 2)
 
-# Merge all predictions
-predictions <- merge(rbindlist(predictions_cases),
-                     rbindlist(predictions_deaths),
-                     by = c("Country/Region", "Date", "Type"),
-                     all = TRUE)
+# Loop over different lookback periods
+predictions <- lapply(1:3*7, function(i){
+  #cases <- read_fst(paste0(data_path, "cases.fst"), as.data.table = TRUE)
+  #deaths <- read_fst(paste0(data_path, "deaths.fst"), as.data.table = TRUE)
+  
+  
+  # Loop over countries
+  predictionDays <- 100
+  lookbackDays   <- i
+  predictions_cases <- mclapply(data[, unique(`Country/Region`)], function(country, days = predictionDays, lookback = lookbackDays){
+    startDay <- data[`Country/Region` == country, max(Date, na.rm = TRUE)]-lookback
+    # Estimate model
+    model <- drm(Cases ~ Day_cases,
+                 data = data[`Country/Region` == country & !is.na(Day_cases) & Date > startDay],
+                 fct = LL.4())
+    
+    # Find latest obs.
+    latestObs <- data[`Country/Region` == country, max(Day_cases, na.rm = TRUE)]
+    
+    # Make prediction x days ahead
+    prediction <- data.table("Country/Region" = country,
+                             "Day_cases" = seq(from = latestObs, to = latestObs+1 + days),
+                             "Type" = "Prediction")
+    prediction[, Date := data[`Country/Region` == country & `Cases per 100k` > .2, min(Date, na.rm = TRUE)] + Day_cases]
+    prediction[, prediction_n_cases := Day_cases-latestObs]
+    prediction <- cbind(prediction, predict(model, prediction, interval = "prediction"))
+    setnames(prediction, "Prediction", "Cases")
+    setnames(prediction, "Lower", "Cases_lower")
+    setnames(prediction, "Upper", "Cases_upper")
+    # Return data
+    return(prediction)
+  }, mc.cores = 2)
+  
+  # Loop over countries
+  predictions_deaths <- mclapply(data[, unique(`Country/Region`)], function(country, days = predictionDays, lookback = lookbackDays){
+    startDay <- data[`Country/Region` == country, max(Date, na.rm = TRUE)]-lookback
+    # Estimate model
+    model <- drm(Deaths ~ Day_death,
+                 data = data[`Country/Region` == country & !is.na(Day_death) & Date > startDay],
+                 fct = LL.4())
+    
+    # Find latest obs.
+    latestObs <- data[`Country/Region` == country, max(Day_death, na.rm = TRUE)]
+    
+    # Make prediction x days ahead
+    prediction <- data.table("Country/Region" = country,
+                             "Day_death" = seq(from = latestObs, to = latestObs+1 + days),
+                             "Type" = "Prediction")
+    prediction[, Date := data[`Country/Region` == country & `Deaths per 100k` > .2, min(Date, na.rm = TRUE)] + Day_death]
+    prediction <- cbind(prediction, predict(model, prediction, interval = "prediction"))
+    prediction[, prediction_n_deaths := Day_death-latestObs]
+    setnames(prediction, "Prediction", "Deaths")
+    setnames(prediction, "Lower", "Deaths_lower")
+    setnames(prediction, "Upper", "Deaths_upper")
+    
+    # Return data
+    return(prediction)
+  }, mc.cores = 2)
+  
+  # Merge all predictions
+  predictions <- merge(rbindlist(predictions_cases),
+                       rbindlist(predictions_deaths),
+                       by = c("Country/Region", "Date", "Type"),
+                       all = TRUE)
+  # Add lookback
+  predictions[, lookback := i]
+  
+}
+)
+
+predictions <- rbindlist(predictions)
+
 # Append to data
 data <- rbindlist(list(data,
                        predictions),
@@ -154,7 +171,7 @@ data[, Deaths_upper := Deaths_upper/(pop/100000)]
 
 # Reshape
 data <- melt(data,
-             id.vars = c("Country/Region", "Date", "Day_cases", "Day_death", "Type","Cases_upper", "Cases_lower","Deaths_upper", "Deaths_lower", "prediction_n_cases", "prediction_n_deaths"),
+             id.vars = c("Country/Region", "Date", "Day_cases", "Day_death", "Type", "lookback","Cases_upper", "Cases_lower","Deaths_upper", "Deaths_lower", "prediction_n_cases", "prediction_n_deaths"),
              measure.vars = c("Cases per 100k", "Deaths per 100k"))
 # Save
 write.fst(data[Date > "2020-03-01", ], paste0(data_path, "plotData.fst"), compress = 50)
@@ -205,7 +222,7 @@ write_fst(new, paste0(data_path, "timing.fst"))
   plot <- ggplot(plot_data[Date == max(Date)]) +
     geom_polypath(aes(x, y, group = group, fill = average_new_cases_100k_7d)) +
     geom_path(aes(x, y, group = group), size = .2) +
-    scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = 20, na.value = "#9e9e9e", name = "Cases per. 100,000", aesthetics = "fill") +
+    scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = 40, na.value = "#9e9e9e", name = "Cases per. 100,000", aesthetics = "fill") +
     theme_void() +
     coord_fixed(ratio = 1.35) +
     ggtitle("Confirmed daily cases per 100,000 during last 7 days")
@@ -221,7 +238,7 @@ write_fst(new, paste0(data_path, "timing.fst"))
 }
 
 ## Zip-file from SSI ----
-page <- "https://www.ssi.dk/sygdomme-beredskab-og-forskning/sygdomsovervaagning/c/covid19-overvaagning"
+page <- "https://covid19.ssi.dk/overvagningsdata/download-fil-med-overvaagningdata" #"https://www.ssi.dk/sygdomme-beredskab-og-forskning/sygdomsovervaagning/c/covid19-overvaagning"
 html <- paste(readLines(page))
 link <- tryCatch({grep("data-epidemiologisk", tolower(html), value = TRUE)  %>%
     str_match_all("<a href=\"(.*?)\"") %>% .[[1]] %>% .[1,2]}, error = function(e){return(e)})
@@ -261,7 +278,7 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     plotdata <- res$R
     plotdata[, date :=  res$dates[8:length(res$dates)]]
     plotdata <- plotdata[date <= max(date)-4] # Remove 4 latest observations
-    plotdata <- plotdata[date >= Sys.Date()-90] # Only plot last 3 months
+    plotdata <- plotdata[date >= Sys.Date()-30*6] # Only plot last 6 months
     plot <- plot_ly(data = plotdata,
                     x = ~date,
                     y = ~`Quantile.0.975(R)`,
@@ -301,12 +318,11 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
                             xaxis = list(title = 'Date',
                                          fixedrange = TRUE),
                             yaxis = list(title = 'R',
-                                         fixedrange = TRUE,
-                                         range = c(0, 3)),
+                                         fixedrange = TRUE),
                             annotations = 
                               list(x = 0, y = 0, text = paste0("Updated: ", lubridate::today()), 
                                    showarrow = F, xref='paper', yref='paper', 
-                                   xanchor='left', yanchor='auto', xshift=-5, yshift=-56,
+                                   xanchor='left', yanchor='auto', xshift=-5, yshift=-45,
                                    font=list(size=10)))%>%
       config(displayModeBar = FALSE)
     
@@ -343,7 +359,7 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     plotdata <- res$R
     plotdata[, date :=  res$dates[8:length(res$dates)]]
     plotdata <- plotdata[date <= max(date)-4] # Remove 4 latest observations
-    plotdata <- plotdata[date >= Sys.Date()-90] # Only plot last 3 months
+    plotdata <- plotdata[date >= Sys.Date()-30*6] # Only plot last 6 months
     plot <- plot_ly(data = plotdata,
                     x = ~date,
                     y = ~`Quantile.0.975(R)`,
@@ -383,35 +399,55 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
                             xaxis = list(title = 'Date',
                                          fixedrange = TRUE),
                             yaxis = list(title = 'R',
-                                         fixedrange = TRUE,
-                                         range = c(0, 3)),
+                                         fixedrange = TRUE),
                             annotations = 
                               list(x = 0, y = 0, text = paste0("Updated: ", lubridate::today()), 
                                    showarrow = F, xref='paper', yref='paper', 
-                                   xanchor='left', yanchor='auto', xshift=-5, yshift=-56,
+                                   xanchor='left', yanchor='auto', xshift=-5, yshift=-45,
                                    font=list(size=10))) %>%
       config(displayModeBar = FALSE)
     
     # Save
     saveRDS(plot, paste0(data_path, "reproduction_rate_cases.RDS"))
+    
+    
   }
   
-  ## Generate plot with reproduction rate using hospitalisations (by region) ----
+  ## Generate plot with reproduction rate using cases (by region) ----
   {
-    # Load data
-    latest <- list.dirs(paste0(data_path, "zip_file"), full.names = FALSE)[-1] %>% as.Date() %>% max()
-    data <- fread(paste0(data_path, "zip_file/", latest, "/Newly_admitted_over_time.csv"))
-    data[, Dato := as.Date(Dato)]
-    data <- data[Dato >= data[Total > 1, min(Dato)], ] # Drops early observations where # cases is very low
-    # Reshape
-    data <- melt(data, id.vars = "Dato", variable.name = "Region", value.name = "Cases")
+    # Load cases per region
+    files <- list.dirs(paste0(data_path, "zip_file"), full.names = FALSE)[-1] %>% as.Date()
+    res <- mclapply(files[files >= as.Date("2020-05-20")], function(date){
+      temp <- fread(paste0(data_path, "zip_file/", date, "/Region_summary.csv"), dec = ",")
+      temp[, Testede := as.numeric(str_remove(Testede, "[.]"))]
+      temp[, Positive := as.numeric(str_remove(Positive, "[<.]"))]
+      temp[, Indlagt_total := as.numeric(str_remove(Indlagt_total, "[.]"))]
+      temp[, Døde := as.numeric(str_remove(Døde, "[<.]"))]
+      temp[, date := date]
+    }, mc.cores = 2)
+    data <- rbindlist(res)
+    data[Region == "I alt i Danmark", Region := "Total"]
+    
+    # Impute missing
+    helper <- expand.grid(seq.Date(data[, min(date)], data[, max(date)], by = "day"), data[, unique(Region)]) %>% data.table()
+    names(helper) <- c("date", "Region")
+    data <- merge(helper, data, by = c("date", "Region"), all.x = TRUE)
+    data[, count_na := sum(is.na(Positive))/.N, by = "Region"]
+    data <- data[count_na < .5]
+    data[, count_na := NULL]
+    library(imputeTS)
+    data[, Positive := round(na_interpolation(Positive)), by = "Region"]
+    
+    data[, new_cases := Positive- shift(Positive, n = 1, type = "lag"), by = "Region"]
+    data[new_cases < 0, new_cases := 0]
+    data <- data[date > as.Date("2020-05-20"), .(date, Region, new_cases)]
     
     # Estimate R
     mean_si <- 4.7
     std_si <- mean_si/2
     
     res <- lapply(data[, unique(Region)], function(region){
-      res <- estimate_R(incid = data[Region == region, Cases],
+      res <- estimate_R(incid = data[Region == region, new_cases],
                         method = "parametric_si",
                         config = make_config(list(
                           mean_si = mean_si,
@@ -424,13 +460,13 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     
     # Merge with date
     helper <- data.table("t_end" = seq(plotData[, min(t_end, na.rm = TRUE)], plotData[, max(t_end, na.rm = TRUE)]))
-    helper[, date := seq(data[, as.Date(max(Dato)) - plotData[, max(t_end, na.rm = TRUE) - min(t_end, na.rm = TRUE)]],
-                         data[, as.Date(max(Dato))], by = "day")]
+    helper[, date := seq(data[, as.Date(max(date)) - plotData[, max(t_end, na.rm = TRUE) - min(t_end, na.rm = TRUE)]],
+                         data[, as.Date(max(date))], by = "day")]
     plotData <- merge(plotData, helper, by = "t_end")
     
     # Plot
     plotData <- plotData[date <= max(date)-4] # Remove 4 latest observations
-    plotdata <- plotdata[date >= Sys.Date()-90] # Only plot last 3 months
+    plotData <- plotData[date >= Sys.Date()-30*4] # Only plot last 4 months
     #plotData <- plotData[date >= "2020-04-01"]
     
     plot <- plot_ly(data = plotData[Region == "Total"],
@@ -619,19 +655,18 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
                                mode = 'lines',
                                line = list(color = 'black', dash = 'dot'),
                                hoverinfo = 'skip')
-    plot <- plot %>% layout(title = "Reproduction rate estimated using hospitalisations",
+    plot <- plot %>% layout(title = "Reproduction rate estimated using cases",
                             xaxis = list(title = 'Date',
                                          fixedrange = TRUE),
                             yaxis = list(title = 'R',
-                                         fixedrange = TRUE,
-                                         range = c(0, 6)),
+                                         fixedrange = TRUE),
                             legend = list(orientation = "h",
                                           xanchor = "center",
                                           x = 0.5),
                             annotations = 
                               list(x = 0, y = 0, text = paste0("Updated: ", lubridate::today()), 
                                    showarrow = F, xref='paper', yref='paper', 
-                                   xanchor='left', yanchor='auto', xshift=-5, yshift=-56,
+                                   xanchor='left', yanchor='auto', xshift=-5, yshift=-45,
                                    font=list(size=10))) %>%
       config(displayModeBar = FALSE)
     # Save
@@ -783,9 +818,9 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
       ggtitle('Date: {frame_time}. Progress: {frame}%')
     
     animation <- animate(anim,
-                         height = 1200,
-                         width = 1600,
-                         res = 192,
+                         height = 1200/2,
+                         width = 1600/2,
+                         res = 192/2,
                          nframes = 150,
                          fps = 10,
                          end_pause = 50)
@@ -823,26 +858,28 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     data[, `Antal_bekræftede_COVID-19` := round(na_interpolation(`Antal_bekræftede_COVID-19`)), by = "Kommune_(navn)"]
     data[, `Kommune_(id)` := median(`Kommune_(id)`, na.rm = TRUE), by = "Kommune_(navn)"]
     
-    data[, new_cases := `Antal_bekræftede_COVID-19`- shift(`Antal_bekræftede_COVID-19`, n = 1, type = "lag"), by = "Kommune_(id)"]
-    data[new_cases < 0, new_cases := 0]
-    data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, new_cases, Befolkningstal)]
+    data[, new_cases_7d := `Antal_bekræftede_COVID-19`- shift(`Antal_bekræftede_COVID-19`, n = 7, type = "lag"), by = "Kommune_(id)"]
+    data[new_cases_7d < 0, new_cases_7d := 0]
+    data <- data[, .(`Kommune_(id)`, `Kommune_(navn)`, date, new_cases_7d, Befolkningstal)]
     
-    data[!is.na(new_cases), new_cases := round(zoo::rollmean(new_cases, k = 7, fill = NA, align = "right")), by = `Kommune_(id)`]
     
       # Add new cases incidense
       data[, Befolkningstal := median(Befolkningstal, na.rm = TRUE), by = "Kommune_(id)"]
-      data[, new_cases_incidense := new_cases/(Befolkningstal/100000)]
+      data[, new_cases_incidense_7d := new_cases_7d/(Befolkningstal/100000)]
       
       # Generate mapPlotData
-      mapPlotData <- mapDK(data = data[!is.na(new_cases_incidense) & date == max(date),], 
-                           values = "new_cases_incidense",
+      mapPlotData <- mapDK(data = data[!is.na(new_cases_incidense_7d) & date == max(date),], 
+                           values = "new_cases_incidense_7d",
                            id = "Kommune_(navn)",
                            detail = "municipal",
                            show_missing = TRUE)$data
       setDT(mapPlotData)
       
       # Define truncating value
-      truncating_value <- data[date >= max(date)-29 & new_cases_incidense > 0, quantile(new_cases_incidense, probs = .95)] %>%
+      truncating_value <- data[date >= max(date)-29 & new_cases_incidense_7d > 0, quantile(new_cases_incidense_7d, probs = .95)] %>%
+        round()
+      # Define midtpoint
+      midtpoint <- data[date >= max(date)-29 & new_cases_incidense_7d > 0, quantile(new_cases_incidense_7d, probs = .5)] %>%
         round()
       
       mapPlotData[values >= truncating_value, values := truncating_value] # Truncated values above truncating value
@@ -850,13 +887,13 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
       plot <- ggplot(mapPlotData) +
         geom_polypath(aes(long, lat, group = group, fill = values)) +
         geom_path(aes(long, lat, group = group), size = .2) +
-        scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = truncating_value/2, na.value = "#9e9e9e", limits = c(0,truncating_value), name = paste0("Cases per 100,000\nTruncated at ", truncating_value), aesthetics = "fill") +
+        scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = midtpoint, na.value = "#9e9e9e", limits = c(0,truncating_value), name = paste0("Cases per 100,000\nTruncated at ", truncating_value), aesthetics = "fill") +
         theme_void() +
         coord_fixed(ratio = 1.85) +
         theme(legend.position = c(.87, .7),
               plot.caption = element_text(hjust = 0)) +
         labs(caption = paste0("Updated: ",lubridate::today())) +
-        ggtitle(paste0("Confirmed daily cases per 100,000 during last 7 days \n Date: ", data[, max(date)]))
+        ggtitle(paste0("Confirmed cases per 100,000 during the last 7 days \n Date: ", data[, max(date)]))
       
       dpi <- 196
       ggsave(paste0(data_path, "map_confirmed_cases_7_day.png"),
@@ -872,9 +909,9 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     # Map Plot data
     mapPlotData <- vector(mode = "list", length = 30) # Only plot the last 30 days
     
-    mapPlotData <- mclapply(seq(from = data[!is.na(new_cases_incidense), max(date)-29], to = data[!is.na(new_cases_incidense), max(date)], by = "days"), function(i){
+    mapPlotData <- mclapply(seq(from = data[!is.na(new_cases_incidense_7d), max(date)-29], to = data[!is.na(new_cases_incidense_7d), max(date)], by = "days"), function(i){
       temp <- mapDK(data = data[date == i,], 
-                    values = "new_cases_incidense",
+                    values = "new_cases_incidense_7d",
                     id = "Kommune_(navn)",
                     detail = "municipal",
                     show_missing = TRUE)$data
@@ -886,7 +923,10 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     mapPlotData <- rbindlist(mapPlotData)
     
     # Define truncating value
-    truncating_value <- data[date >= max(date)-29 & new_cases_incidense > 0, quantile(new_cases_incidense, probs = .95)] %>%
+    truncating_value <- data[date >= max(date)-29 & new_cases_incidense_7d > 0, quantile(new_cases_incidense_7d, probs = .95)] %>%
+      round()
+    # Define midtpoint
+    midtpoint <- data[date >= max(date)-29 & new_cases_incidense_7d > 0, quantile(new_cases_incidense_7d, probs = .5)] %>%
       round()
     
     mapPlotData[values >= truncating_value, values := truncating_value]
@@ -897,19 +937,19 @@ if(!as.character(lubridate::today()) %in% list.dirs(paste0(data_path,"zip_file")
     anim <- ggplot(mapPlotData) +
       geom_polypath(aes(long, lat, group = group, fill = values)) +
       geom_path(aes(long, lat, group = group), size = .2) +
-      scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = truncating_value/2, na.value = "#9e9e9e", limits = c(0,truncating_value), name = paste0("Cases per 100,000\nTruncated at ", truncating_value), aesthetics = "fill") +
+      scale_fill_gradient2(low = "#00c853",  mid = "#fbc02d" ,high = "#d32f2f", midpoint = midtpoint, na.value = "#9e9e9e", limits = c(0,truncating_value), name = paste0("Cases per 100,000\nTruncated at ", truncating_value), aesthetics = "fill") +
       theme_void() +
       coord_fixed(ratio = 1.85) +
       theme(legend.position = c(.87, .7),
             plot.caption = element_text(hjust = 0)) +
       labs(caption = paste0("Updated: ",lubridate::today())) +
       transition_time(date) +
-      ggtitle("Confirmed daily cases per 100,000 during the last 7 days \n Date: {frame_time}. Progress: {frame}%")
+      ggtitle("Confirmed cases per 100,000 during the last 7 days \n Date: {frame_time}. Progress: {frame}%")
     
     animation <- animate(anim,
-                         height = 1200,
-                         width = 1600,
-                         res = 192,
+                         height = 1200/2,
+                         width = 1600/2,
+                         res = 192/2,
                          nframes = 150,
                          fps = 10,
                          end_pause = 50)
